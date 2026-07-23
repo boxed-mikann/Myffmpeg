@@ -1,5 +1,6 @@
 import os
 import tempfile
+import subprocess
 from typing import Dict, Any, List, Optional, Tuple
 from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtWidgets import (
@@ -14,7 +15,84 @@ from PySide6.QtMultimediaWidgets import QVideoWidget
 from src.utils.preset_manager import PresetManager, DEFAULT_SETTINGS
 from src.core.bitrate_calc import BitrateCalculator
 from src.core.ffmpeg_worker import FFmpegWorker
+from src.utils.path_helper import get_tool_path
 
+ENCODER_DISPLAY_NAMES = {
+    "libx264": "H.264 (CPU)",
+    "h264_nvenc": "H.264 (NVIDIA GPU)",
+    "h264_amf": "H.264 (AMD GPU)",
+    "h264_qsv": "H.264 (Intel GPU)",
+    "libx265": "H.265/HEVC (CPU)",
+    "hevc_nvenc": "H.265/HEVC (NVIDIA GPU)",
+    "hevc_amf": "H.265/HEVC (AMD GPU)",
+    "hevc_qsv": "H.265/HEVC (Intel GPU)",
+    "libsvtav1": "AV1 (CPU)",
+    "av1_nvenc": "AV1 (NVIDIA GPU)",
+    "av1_amf": "AV1 (AMD GPU)",
+    "av1_qsv": "AV1 (Intel GPU)"
+}
+
+def detect_available_encoders() -> List[str]:
+    """
+    PC環境で実際に動作する動画エンコーダーのリストを返す。
+    CPUエンコーダーは常に有効とし、GPUエンコーダーはテストエンコードで判定する。
+    """
+    ffmpeg_bin = get_tool_path("ffmpeg")
+    candidate_encoders = [
+        "libx264", "h264_nvenc", "h264_amf", "h264_qsv",
+        "libx265", "hevc_nvenc", "hevc_amf", "hevc_qsv",
+        "libsvtav1", "av1_nvenc", "av1_amf", "av1_qsv"
+    ]
+    available = []
+    
+    for encoder in candidate_encoders:
+        cmd = [
+            ffmpeg_bin, "-y",
+            "-f", "lavfi", "-i", "color=c=black:s=128x128:r=30",
+            "-frames:v", "2",
+            "-c:v", encoder,
+            "-f", "null", "-"
+        ]
+        #print(cmd)
+        
+        try:
+            startupinfo = None
+            if os.name == 'nt' and hasattr(subprocess, 'STARTUPINFO'):
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                
+            res = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                startupinfo=startupinfo,
+                timeout=3
+            )
+            
+            if res.returncode == 0:
+                available.append(encoder)
+        except Exception as e:
+            #print(e)
+            pass
+        #print(encoder, res.returncode)
+        #print(res.stderr.decode(errors="ignore"))
+    #print(available)
+    return available
+
+def build_quality_args(encoder: str, quality_value: int) -> List[str]:
+    """
+    エンコーダー（H.264 / HEVC / AV1共通）に応じた固定画質パラメータを生成する
+    """
+    if "lib" in encoder:
+        return ["-crf", str(quality_value)]
+    elif "nvenc" in encoder:
+        return ["-rc", "vbr", "-cq", str(quality_value)]
+    elif "qsv" in encoder:
+        return ["-global_quality", str(quality_value)]
+    elif "amf" in encoder:
+        q_str = str(quality_value)
+        return ["-rc", "cqp", "-qp_i", q_str, "-qp_p", q_str]
+    return ["-crf", str(quality_value)]
 
 class SettingsPane(QGroupBox):
     settings_changed = Signal()
@@ -26,6 +104,7 @@ class SettingsPane(QGroupBox):
         self.preset_manager = PresetManager()
         self.preview_worker: Optional[FFmpegWorker] = None
         self._preview_output_path: str = ""
+        self.available_encoders = detect_available_encoders()
 
         self._init_ui()
         self.load_from_preset(self.preset_manager.load_settings())
@@ -170,9 +249,8 @@ class SettingsPane(QGroupBox):
         layout.addRow("フレームレート (FPS):", self.cmb_b_fps)
 
         self.cmb_b_encoder = QComboBox()
-        self.cmb_b_encoder.addItems([
-            "CPU (libx264)", "CPU (libx265)", "Intel QSV (h264_qsv)", "Intel QSV (hevc_qsv)"
-        ])
+        for enc in self.available_encoders:
+            self.cmb_b_encoder.addItem(ENCODER_DISPLAY_NAMES.get(enc, enc), enc)
         layout.addRow("エンコーダ:", self.cmb_b_encoder)
 
         # CRF slider and spinbox
@@ -233,9 +311,8 @@ class SettingsPane(QGroupBox):
         layout.addRow("フレームレート (FPS):", self.cmb_c_fps)
 
         self.cmb_c_encoder = QComboBox()
-        self.cmb_c_encoder.addItems([
-            "CPU (libx264)", "CPU (libx265)", "Intel QSV (h264_qsv)", "Intel QSV (hevc_qsv)"
-        ])
+        for enc in self.available_encoders:
+            self.cmb_c_encoder.addItem(ENCODER_DISPLAY_NAMES.get(enc, enc), enc)
         layout.addRow("エンコーダ:", self.cmb_c_encoder)
 
         self.spn_c_target_mb = QDoubleSpinBox()
@@ -301,25 +378,60 @@ class SettingsPane(QGroupBox):
             self.lbl_c_calc_info.setText("推定映像ビットレート: 対象ファイルを指定してください")
             return
 
-        dur = current_data["duration"]
         target_mb = self.spn_c_target_mb.value()
         abitrate_kbps = BitrateCalculator.parse_bitrate_str_to_kbps(self.cmb_c_abitrate.currentText())
 
         try:
-            calc = BitrateCalculator.calculate_video_bitrate(
-                duration_sec=dur,
+            calc_prev = BitrateCalculator.calculate_video_bitrate(
+                duration_sec=current_data["duration"],
                 target_size_mb=target_mb,
                 audio_bitrate_kbps=abitrate_kbps
             )
-            v_kbps = calc["video_bitrate_kbps"]
-            v_mb = calc["video_size_mb"]
-            self.lbl_c_calc_info.setText(
-                f"推定映像: {v_kbps} kbps ({v_mb:.2f} MB) / 全体: {calc['total_bitrate_kbps']} kbps"
-            )
-            self.lbl_c_calc_info.setStyleSheet("color: #198754; font-weight: bold;")
+            prev_v_kbps = calc_prev["video_bitrate_kbps"]
+            prev_v_mb = calc_prev["video_size_mb"]
+            prev_total = calc_prev["total_bitrate_kbps"]
+            
+            base_text = f"推定映像(プレビュー中ファイル): {prev_v_kbps} kbps ({prev_v_mb:.2f} MB) / 全体: {prev_total} kbps"
         except ValueError as e:
             self.lbl_c_calc_info.setText(f"エラー: {e}")
             self.lbl_c_calc_info.setStyleSheet("color: #dc3545; font-weight: bold;")
+            return
+            
+        count = self.cmb_preview_file.count()
+        if count <= 1:
+            self.lbl_c_calc_info.setText(base_text)
+            self.lbl_c_calc_info.setStyleSheet("color: #198754; font-weight: bold;")
+            return
+            
+        min_kbps = float('inf')
+        max_kbps = 0
+        has_error = False
+        
+        for i in range(count):
+            file_info = self.cmb_preview_file.itemData(i)
+            dur = file_info.get("duration", 0)
+            if dur <= 0:
+                has_error = True
+                break
+            try:
+                calc = BitrateCalculator.calculate_video_bitrate(
+                    duration_sec=dur,
+                    target_size_mb=target_mb,
+                    audio_bitrate_kbps=abitrate_kbps
+                )
+                vk = calc["video_bitrate_kbps"]
+                if vk < min_kbps: min_kbps = vk
+                if vk > max_kbps: max_kbps = vk
+            except ValueError:
+                has_error = True
+                break
+                
+        if has_error:
+            self.lbl_c_calc_info.setText(base_text + "\n(全体推定: エラーとなるファイルがあります)")
+            self.lbl_c_calc_info.setStyleSheet("color: #d63384; font-weight: bold;") # highlight error softly
+        else:
+            self.lbl_c_calc_info.setText(base_text + f"\n(対象全ファイル推定映像: {min_kbps} 〜 {max_kbps} kbps)")
+            self.lbl_c_calc_info.setStyleSheet("color: #198754; font-weight: bold;")
 
     def _on_settings_changed(self):
         self.update_bitrate_estimate()
@@ -338,7 +450,7 @@ class SettingsPane(QGroupBox):
             "quality_compress": {
                 "resolution": self.cmb_b_res.currentText(),
                 "fps": self.cmb_b_fps.currentText(),
-                "encoder": self.cmb_b_encoder.currentText(),
+                "encoder": self.cmb_b_encoder.currentData() or "libx264",
                 "crf": self.spn_b_crf.value(),
                 "preset_speed": self.cmb_b_preset.currentText(),
                 "audio_mono": self.chk_b_mono.isChecked(),
@@ -348,7 +460,7 @@ class SettingsPane(QGroupBox):
             "size_compress": {
                 "resolution": self.cmb_c_res.currentText(),
                 "fps": self.cmb_c_fps.currentText(),
-                "encoder": self.cmb_c_encoder.currentText(),
+                "encoder": self.cmb_c_encoder.currentData() or "libx264",
                 "target_size_mb": self.spn_c_target_mb.value(),
                 "audio_mono": self.chk_c_mono.isChecked(),
                 "audio_bitrate": self.cmb_c_abitrate.currentText(),
@@ -372,7 +484,12 @@ class SettingsPane(QGroupBox):
         qb = settings.get("quality_compress", {})
         self.cmb_b_res.setCurrentText(qb.get("resolution", "Original"))
         self.cmb_b_fps.setCurrentText(qb.get("fps", "Original"))
-        self.cmb_b_encoder.setCurrentText(qb.get("encoder", "CPU (libx264)"))
+        
+        enc_b = qb.get("encoder", "libx264")
+        idx_b = self.cmb_b_encoder.findData(enc_b)
+        if idx_b >= 0:
+            self.cmb_b_encoder.setCurrentIndex(idx_b)
+            
         self.spn_b_crf.setValue(qb.get("crf", 23))
         self.cmb_b_preset.setCurrentText(qb.get("preset_speed", "medium"))
         self.chk_b_mono.setChecked(qb.get("audio_mono", False))
@@ -383,7 +500,12 @@ class SettingsPane(QGroupBox):
         sc = settings.get("size_compress", {})
         self.cmb_c_res.setCurrentText(sc.get("resolution", "Original"))
         self.cmb_c_fps.setCurrentText(sc.get("fps", "Original"))
-        self.cmb_c_encoder.setCurrentText(sc.get("encoder", "CPU (libx264)"))
+        
+        enc_c = sc.get("encoder", "libx264")
+        idx_c = self.cmb_c_encoder.findData(enc_c)
+        if idx_c >= 0:
+            self.cmb_c_encoder.setCurrentIndex(idx_c)
+            
         self.spn_c_target_mb.setValue(sc.get("target_size_mb", 50.0))
         self.chk_c_mono.setChecked(sc.get("audio_mono", False))
         self.cmb_c_abitrate.setCurrentText(sc.get("audio_bitrate", "128k"))
@@ -490,11 +612,13 @@ class SettingsPane(QGroupBox):
 
             is_two_pass = True
             passlog_prefix = os.path.join(tempfile.gettempdir(), "myffmpeg_preview_passlog")
+            
+            encoder_raw = sc["encoder"]
 
             pass1_args = ["-y", "-ss", "0", "-t", "10", "-i", in_path]
             pass1_args.extend(self._build_video_filter_args(sc))
             pass1_args.extend([
-                "-c:v", self._get_codec_name(sc["encoder"]),
+                "-c:v", encoder_raw,
                 "-b:v", f"{v_bitrate_kbps}k",
                 "-pass", "1",
                 "-passlogfile", passlog_prefix,
@@ -505,7 +629,7 @@ class SettingsPane(QGroupBox):
             pass2_args = ["-y", "-ss", "0", "-t", "10", "-i", in_path]
             pass2_args.extend(self._build_video_filter_args(sc))
             pass2_args.extend([
-                "-c:v", self._get_codec_name(sc["encoder"]),
+                "-c:v", encoder_raw,
                 "-b:v", f"{v_bitrate_kbps}k",
                 "-pass", "2",
                 "-passlogfile", passlog_prefix
@@ -549,15 +673,6 @@ class SettingsPane(QGroupBox):
             QMessageBox.warning(self, "プレビュー生成エラー", f"プレビューの作成に失敗しました:\n{output_or_err}")
 
     # ------------------- Command Builder Helpers -------------------
-    def _get_codec_name(self, encoder_str: str) -> str:
-        if "libx265" in encoder_str:
-            return "libx265"
-        elif "h264_qsv" in encoder_str:
-            return "h264_qsv"
-        elif "hevc_qsv" in encoder_str:
-            return "hevc_qsv"
-        return "libx264"
-
     def _build_video_filter_args(self, settings: Dict[str, Any]) -> List[str]:
         args = []
         res = settings.get("resolution", "Original")
@@ -584,14 +699,11 @@ class SettingsPane(QGroupBox):
 
     def _build_video_args(self, qb: Dict[str, Any]) -> List[str]:
         args = self._build_video_filter_args(qb)
-        encoder = self._get_codec_name(qb.get("encoder", "CPU (libx264)"))
+        encoder = qb.get("encoder", "libx264")
         args.extend(["-c:v", encoder])
 
         crf = qb.get("crf", 23)
-        if "qsv" in encoder:
-            args.extend(["-global_quality", str(crf)])
-        else:
-            args.extend(["-crf", str(crf)])
+        args.extend(build_quality_args(encoder, crf))
 
         preset = qb.get("preset_speed", "medium")
         args.extend(["-preset", preset])

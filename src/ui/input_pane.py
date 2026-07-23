@@ -86,8 +86,10 @@ class InputPane(QGroupBox):
         ])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive) #列幅の自由な変更を可能にする
+        # Set default reasonable widths for commonly truncated columns
+        self.table.setColumnWidth(1, 150) # ファイル名
+        self.table.setColumnWidth(7, 200) # パス
         layout.addWidget(self.table)
 
         # Signals

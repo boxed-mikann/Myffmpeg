@@ -53,5 +53,23 @@
 - `main_window.py`: `QIcon` を追加インポート、`setWindowIcon` でアイコン設定
 - `app_icon.ico` を `assets/icon/` に配置（要pyinstaller時同梱設定）
 
-#### 配布ファイル作成
+#### 配布ファイル作成 by user
 - `pyinstaller --noconsole --onedir --name "Myffmpeg" --icon "assets/app_icon.ico" --add-data "assets;assets" --add-data "tools;tools" --add-data "LICENSE_FFmpeg.txt;." --add-data "LICENSE;." main.py` で実行
+
+## 追加修正対応
+### ファイルリストの項目表示幅調整
+- `input_pane.py` : QTableWidget の列幅調整モードを `Interactive` に変更し、ユーザーが列幅をマウスで自由に変更できるように修正。
+- パスやファイル名などの長い文字列が見切れないよう、初期幅 (`150` や `200`) を設定。
+
+### エンコーダーの動的検知と追加
+- `settings_pane.py` : H.264, H.265 (HEVC), AV1 形式における CPU, NVIDIA NVENC, AMD AMF, Intel QSV などの各種エンコーダーに対応。
+- 実行時にバックグラウンドで空出力のテストエンコードを実行し、実際のPC環境で利用可能なエンコーダーのみをドロップダウンに表示 (`detect_available_encoders` メソッド追加)。
+- 選択されたエンコーダーに応じた画質パラメータ (CRF, VBR, CQP, Global Quality等) を自動生成する `build_quality_args` メソッドを実装。
+
+#### libsvtav1が認識されない問題
+- essential版にはそもそも入ってなかった。
+
+### 複数ファイル選択時のビットレート一括計算
+- `settings_pane.py` : サイズ指定圧縮 (2パス) 時の推定映像ビットレート計算ロジックを変更。
+- リストに登録された全ファイルについて一括で計算し、`〇〇 〜 〇〇 kbps` のように最小〜最大の幅で全体推定を表示するように変更。
+- 一部ファイルでも計算エラー（動画長が不明等）が発生した場合は、「エラーとなるファイルがあります」と警告表示するよう処理を実装。

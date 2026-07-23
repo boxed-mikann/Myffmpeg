@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
         pass1_args.extend(["-i", in_path])
         pass1_args.extend(self.settings_pane._build_video_filter_args(sc))
         pass1_args.extend([
-            "-c:v", self.settings_pane._get_codec_name(sc["encoder"]),
+            "-c:v", sc["encoder"],
             "-b:v", f"{v_bitrate_kbps}k",
             "-pass", "1",
             "-passlogfile", passlog_prefix,
@@ -215,7 +215,7 @@ class MainWindow(QMainWindow):
         pass2_args.extend(["-i", in_path])
         pass2_args.extend(self.settings_pane._build_video_filter_args(sc))
         pass2_args.extend([
-            "-c:v", self.settings_pane._get_codec_name(sc["encoder"]),
+            "-c:v", sc["encoder"],
             "-b:v", f"{v_bitrate_kbps}k",
             "-pass", "2",
             "-passlogfile", passlog_prefix
