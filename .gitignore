@@ -1,0 +1,26 @@
+# --- Python関連 ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# --- IDE / エディタ関連 ---
+.vscode/
+.idea/
+
+# --- PyInstaller ビルド成果物 ---
+build/
+dist/
+*.manifest
+#*.spec
+
+# --- 外部ツールバイナリ (容量が大きいためGit管理しない) ---
+tools/*.exe
+
+# --- アプリ生成物・一時ファイル・テスト用動画 ---
+presets/settings.json
+*.mp4
+*.mkv
+*.avi
+test_input.mp4
