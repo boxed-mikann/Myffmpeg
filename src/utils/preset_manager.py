@@ -17,22 +17,22 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     },
     # Tab B: Quality Compression
     "quality_compress": {
-        "resolution": "Original",
-        "fps": "Original",
+        "resolution": "元のまま",
+        "fps": "元のまま",
         "encoder": "CPU (libx264)",
         "crf": 23,
         "preset_speed": "medium",
-        "audio_mono": False,
+        "audio_mono": True,
         "audio_bitrate": "128k",
         "output_suffix": "_compressed"
     },
     # Tab C: Target Size Compression
     "size_compress": {
-        "resolution": "Original",
-        "fps": "Original",
+        "resolution": "元のまま",
+        "fps": "元のまま",
         "encoder": "CPU (libx264)",
         "target_size_mb": 50.0,
-        "audio_mono": False,
+        "audio_mono": True,
         "audio_bitrate": "128k",
         "output_suffix": "_targetsize"
     },

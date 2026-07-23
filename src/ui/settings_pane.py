@@ -227,10 +227,13 @@ class SettingsPane(QGroupBox):
 
         self.cmb_audio_format = QComboBox()
         self.cmb_audio_format.addItems(["mp3", "aac", "wav", "flac", "m4a"])
-        layout.addRow("音声出力フォーマット:", self.cmb_audio_format)
+        layout.addRow("⚙️音声出力フォーマット(形式):", self.cmb_audio_format)
+        self.cmb_audio_format.setToolTip("音声の出力フォーマットを選択します。mp3から変えなくていいと思う。しらんけど。")
+
 
         self.txt_a_suffix = QLineEdit("_novideo")
-        layout.addRow("出力サフィックス:", self.txt_a_suffix)
+        layout.addRow("🏷️ ファイル名の末尾:", self.txt_a_suffix)
+        self.txt_a_suffix.setToolTip("処理後のファイルを区別するために付けます。")
 
         # Connect signals
         self.cmb_audio_format.currentIndexChanged.connect(self._on_settings_changed)
@@ -241,51 +244,81 @@ class SettingsPane(QGroupBox):
         layout = QFormLayout(self.tab_b)
 
         self.cmb_b_res = QComboBox()
-        self.cmb_b_res.addItems(["Original", "1920x1080", "1280x720", "854x480", "640x360"])
-        layout.addRow("解像度:", self.cmb_b_res)
+        self.cmb_b_res.addItems(["元のまま", "1920x1080", "1280x720", "854x480", "640x360"])
+        layout.addRow("🖥️解像度:", self.cmb_b_res)
+        self.cmb_b_res.setToolTip("動画の解像度を選択します")
 
         self.cmb_b_fps = QComboBox()
-        self.cmb_b_fps.addItems(["Original", "60", "50", "30", "24"])
-        layout.addRow("フレームレート (FPS):", self.cmb_b_fps)
+        self.cmb_b_fps.addItems(["元のまま", "60", "50", "30", "24"])
+        layout.addRow("🎬フレームレート (FPS):", self.cmb_b_fps)
+        self.cmb_b_fps.setToolTip("動画のフレームレートを選択します。元が60とかじゃない限り変えなくていいと思う。")
 
         self.cmb_b_encoder = QComboBox()
         for enc in self.available_encoders:
             self.cmb_b_encoder.addItem(ENCODER_DISPLAY_NAMES.get(enc, enc), enc)
-        layout.addRow("エンコーダ:", self.cmb_b_encoder)
+        layout.addRow("⚙️エンコーダ(方式):", self.cmb_b_encoder)
+        self.cmb_b_encoder.setToolTip("H.264:一般的でどこでも再生できる。\nHEVC:最近のスマホやPCならこっちのほうが容量小さいかも。\nAV1:最新の一番容量が小さいやつ。ただ再生できる環境がまだ少ない。あと時間かかる。\n GPU使うと早くなるけど、圧縮効率は少し落ちるらしい")
 
         # CRF slider and spinbox
         crf_layout = QHBoxLayout()
+        # 1. 左右のガイド用ラベルを作成
+        self.lbl_crf_left = QLabel("💎高画質")
+        self.lbl_crf_right = QLabel("📦低サイズ")
+
+        # 文字を少し小さく・灰色にしてスッキリ見せる見た目の設定 (スタイリング)
+        self.lbl_crf_left.setStyleSheet("color: gray; font-size: 11px;")
+        self.lbl_crf_right.setStyleSheet("color: gray; font-size: 11px;")
+
         self.slider_b_crf = QSlider(Qt.Horizontal)
-        self.slider_b_crf.setRange(0, 51)
+        self.slider_b_crf.setRange(18, 51)
         self.slider_b_crf.setValue(23)
         self.spn_b_crf = QSpinBox()
-        self.spn_b_crf.setRange(0, 51)
+        self.spn_b_crf.setRange(18, 51)
         self.spn_b_crf.setValue(23)
 
         self.slider_b_crf.valueChanged.connect(self.spn_b_crf.setValue)
         self.spn_b_crf.valueChanged.connect(self.slider_b_crf.setValue)
 
+        crf_layout.addWidget(self.lbl_crf_left)
         crf_layout.addWidget(self.slider_b_crf)
         crf_layout.addWidget(self.spn_b_crf)
-        layout.addRow("品質 (CRF / QP):", crf_layout)
+        crf_layout.addWidget(self.lbl_crf_right)
+        layout.addRow("💎品質:", crf_layout)
+
+        crf_tooltip = (
+            "【画質の目安数値 (CRF)】\n"
+            "・左側 : 高画質（劣化はほぼ無し / 容量は大きめ）\n"
+            "・標準 (23～28) \n"
+            "・右側 : 容量重視（かなり軽量化 / 画質は控えめ）\n"
+            "プレビュー見ながら、どこまで落とせるか(数字をあげられるか)試しましょう！\n"
+        )
+
+        self.slider_b_crf.setToolTip(crf_tooltip)
+        self.spn_b_crf.setToolTip(crf_tooltip)
+        self.lbl_crf_left.setToolTip(crf_tooltip)
+        self.lbl_crf_right.setToolTip(crf_tooltip)
 
         self.cmb_b_preset = QComboBox()
         self.cmb_b_preset.addItems([
             "ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"
         ])
         self.cmb_b_preset.setCurrentText("medium")
-        layout.addRow("エンコード速度:", self.cmb_b_preset)
+        layout.addRow("⏱️処理速度:", self.cmb_b_preset)
+        self.cmb_b_preset.setToolTip("速くするほどサイズが小さくなり、遅くするほどサイズが大きくなります。")
 
-        self.chk_b_mono = QCheckBox("モノラル化 (-ac 1)")
-        layout.addRow("音声チャンネル:", self.chk_b_mono)
+        self.chk_b_mono = QCheckBox("モノラル化")
+        layout.addRow("🎧音声チャンネル:", self.chk_b_mono)
+        self.chk_b_mono.setToolTip("モノラル化とは左耳右耳用(ステレオ)で2つある音声を合わせて1つにすることです。\nチェックを入れると音声のファイルサイズが約半分になります。")
 
         self.cmb_b_abitrate = QComboBox()
         self.cmb_b_abitrate.addItems(["64k", "96k", "128k", "160k", "192k", "256k", "320k"])
         self.cmb_b_abitrate.setCurrentText("128k")
-        layout.addRow("音声ビットレート:", self.cmb_b_abitrate)
+        layout.addRow("🎵音声ビットレート:", self.cmb_b_abitrate)
+        self.cmb_b_abitrate.setToolTip("音声のビットレートとは1秒間当たりのデータ量です。数値が大きいほど音質が良くなります。\n普通は128kくらい。64kでも聞こえる。\n 音楽じゃなければ64でいいんじゃないかな")
 
         self.txt_b_suffix = QLineEdit("_compressed")
-        layout.addRow("出力サフィックス:", self.txt_b_suffix)
+        layout.addRow("🏷️ファイル名の末尾:", self.txt_b_suffix)
+        self.txt_b_suffix.setToolTip("処理後のファイルを区別するために付けます。")
 
         # Connect signals
         for widget in [self.cmb_b_res, self.cmb_b_fps, self.cmb_b_encoder, self.spn_b_crf,
@@ -303,34 +336,39 @@ class SettingsPane(QGroupBox):
         layout = QFormLayout(self.tab_c)
 
         self.cmb_c_res = QComboBox()
-        self.cmb_c_res.addItems(["Original", "1920x1080", "1280x720", "854x480", "640x360"])
-        layout.addRow("解像度:", self.cmb_c_res)
+        self.cmb_c_res.addItems(["元のまま", "1920x1080", "1280x720", "854x480", "640x360"])
+        layout.addRow("🖥️解像度:", self.cmb_c_res)
 
         self.cmb_c_fps = QComboBox()
-        self.cmb_c_fps.addItems(["Original", "60", "50", "30", "24"])
-        layout.addRow("フレームレート (FPS):", self.cmb_c_fps)
+        self.cmb_c_fps.addItems(["元のまま", "60", "50", "30", "24"])
+        layout.addRow("🎬フレームレート (FPS):", self.cmb_c_fps)
 
         self.cmb_c_encoder = QComboBox()
         for enc in self.available_encoders:
             self.cmb_c_encoder.addItem(ENCODER_DISPLAY_NAMES.get(enc, enc), enc)
-        layout.addRow("エンコーダ:", self.cmb_c_encoder)
+        layout.addRow("⚙️エンコーダ(方式):", self.cmb_c_encoder)
+        self.cmb_c_encoder.setToolTip("H.264:一般的でどこでも再生できる。\nHEVC:最近のスマホやPCならこっちのほうが容量小さいかも。\nAV1:最新の一番容量が小さいやつ。ただ再生できる環境がまだ少ない。あと時間かかる。\n GPU : 使うと処理が速くなるけど、圧縮率は少し落ちるらしい")
 
         self.spn_c_target_mb = QDoubleSpinBox()
         self.spn_c_target_mb.setRange(1.0, 10000.0)
         self.spn_c_target_mb.setValue(50.0)
         self.spn_c_target_mb.setSuffix(" MB")
-        layout.addRow("目標ファイルサイズ:", self.spn_c_target_mb)
+        layout.addRow("🎯目標ファイルサイズ:", self.spn_c_target_mb)
+        self.spn_c_target_mb.setToolTip("動画の目標サイズを入力します。")
 
-        self.chk_c_mono = QCheckBox("モノラル化 (-ac 1)")
-        layout.addRow("音声チャンネル:", self.chk_c_mono)
+        self.chk_c_mono = QCheckBox("モノラル化")
+        layout.addRow("🎧音声チャンネル:", self.chk_c_mono)
+        self.chk_c_mono.setToolTip("モノラル化とは左耳右耳用(ステレオ)で2つある音声を合わせて1つにすることです。\nチェックを入れると音声のファイルサイズが約半分になります。")
 
         self.cmb_c_abitrate = QComboBox()
         self.cmb_c_abitrate.addItems(["64k", "96k", "128k", "160k", "192k", "256k", "320k"])
         self.cmb_c_abitrate.setCurrentText("128k")
-        layout.addRow("音声ビットレート:", self.cmb_c_abitrate)
+        layout.addRow(" 🎵音声ビットレート:", self.cmb_c_abitrate)
+        self.cmb_c_abitrate.setToolTip("音声のビットレートとは1秒間当たりのデータ量です。数値が大きいほど音質が良くなります。\n普通は128kくらい。64kでも聞こえる。\n 音楽じゃなければ64でいいんじゃないかな")
 
         self.txt_c_suffix = QLineEdit("_targetsize")
-        layout.addRow("出力サフィックス:", self.txt_c_suffix)
+        layout.addRow("🏷️ファイル名の末尾:", self.txt_c_suffix)
+        self.txt_c_suffix.setToolTip("処理後のファイルを区別するために付けます。")
 
         self.lbl_c_calc_info = QLabel("推定映像ビットレート: - kbps")
         self.lbl_c_calc_info.setStyleSheet("color: #198754; font-weight: bold;")
@@ -482,8 +520,8 @@ class SettingsPane(QGroupBox):
 
         # Tab B
         qb = settings.get("quality_compress", {})
-        self.cmb_b_res.setCurrentText(qb.get("resolution", "Original"))
-        self.cmb_b_fps.setCurrentText(qb.get("fps", "Original"))
+        self.cmb_b_res.setCurrentText(qb.get("resolution", "元のまま"))
+        self.cmb_b_fps.setCurrentText(qb.get("fps", "元のまま"))
         
         enc_b = qb.get("encoder", "libx264")
         idx_b = self.cmb_b_encoder.findData(enc_b)
@@ -498,8 +536,8 @@ class SettingsPane(QGroupBox):
 
         # Tab C
         sc = settings.get("size_compress", {})
-        self.cmb_c_res.setCurrentText(sc.get("resolution", "Original"))
-        self.cmb_c_fps.setCurrentText(sc.get("fps", "Original"))
+        self.cmb_c_res.setCurrentText(sc.get("resolution", "元のまま"))
+        self.cmb_c_fps.setCurrentText(sc.get("fps", "元のまま"))
         
         enc_c = sc.get("encoder", "libx264")
         idx_c = self.cmb_c_encoder.findData(enc_c)
@@ -675,14 +713,14 @@ class SettingsPane(QGroupBox):
     # ------------------- Command Builder Helpers -------------------
     def _build_video_filter_args(self, settings: Dict[str, Any]) -> List[str]:
         args = []
-        res = settings.get("resolution", "Original")
-        fps = settings.get("fps", "Original")
+        res = settings.get("resolution", "元のまま")
+        fps = settings.get("fps", "元のまま")
 
         filters = []
-        if res != "Original" and "x" in res:
+        if res != "元のまま" and "x" in res:
             w, h = res.split("x")
             filters.append(f"scale={w}:{h}")
-        if fps != "Original" and fps.isdigit():
+        if fps != "元のまま" and fps.isdigit():
             filters.append(f"fps={fps}")
 
         if filters:
