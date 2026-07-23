@@ -45,7 +45,7 @@ Pythonのインストールや環境構築は不要です。
 
 1. リポジトリをクローン
    ```bash
-   git clone [https://github.com/your-username/Myffmpeg.git](https://github.com/your-username/Myffmpeg.git)
+   git clone https://github.com/boxed-mikann/Myffmpeg.git
    cd Myffmpeg
 
 2. 仮想環境の作成とライブラリのインストール
@@ -55,8 +55,10 @@ Pythonのインストールや環境構築は不要です。
     .\.venv\Scripts\activate
     pip install -r requirements.txt
     ```
+    `.\.venv\Scripts\activate`でエラーが出たら、`Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process`もしくは`Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`を実行してから再度実行してください。
+
 3. FFmpegの配置
-gyan.dev 等からダウンロードした ffmpeg.exe と ffprobe.exe を ./tools/ フォルダ内に配置してください。
+gyan.dev 等からダウンロードした ffmpeg.exe と ffprobe.exe を ./tools/ フォルダ内に配置してください。release-essentialsが軽量でおすすめです。
 
     ```plaintext
     Myffmpeg/
