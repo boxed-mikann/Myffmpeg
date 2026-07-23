@@ -1,6 +1,6 @@
 from typing import Dict, Any
 
-class BitrateCalculator:
+class BitrateCalculator: #ビットレート計算するだけ
     @staticmethod
     def parse_bitrate_str_to_kbps(bitrate_str: str) -> float:
         """Helper to parse strings like '128k', '320k', '1M' into kbps (float)."""
@@ -9,7 +9,7 @@ class BitrateCalculator:
             return float(s[:-1])
         elif s.endswith("m"):
             return float(s[:-1]) * 1000.0
-        elif s.isdigit():
+        elif s.isdigit(): #ギガ?
             return float(s) / 1000.0
         return 128.0
 

@@ -11,11 +11,14 @@ class FFprobeParser:
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """
         Executes ffprobe on the given file path and returns parsed metadata dict.
+        与えられたファイルパスに基づきffprobeを実行して、メタデータの辞書型を返す。
         """
+        # 実行ファイルの絶対パスを取得 ファイルが存在するかチェック
         abs_path = os.path.abspath(file_path)
         if not os.path.isfile(abs_path):
             raise FileNotFoundError(f"File not found: {abs_path}")
 
+        # ffprobe を実行
         cmd = [
             self.ffprobe_exe,
             "-v", "quiet",
@@ -34,7 +37,7 @@ class FFprobeParser:
         except json.JSONDecodeError as e:
             raise RuntimeError(f"Failed to parse ffprobe JSON output: {e}")
 
-        streams = data.get("streams", [])
+        streams = data.get("streams", [])#dict型の便利なメソッド、存在しなければ[]を返す。
         format_info = data.get("format", {})
 
         file_size = int(format_info.get("size", os.path.getsize(abs_path)))

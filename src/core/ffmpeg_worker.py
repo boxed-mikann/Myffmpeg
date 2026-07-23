@@ -19,10 +19,10 @@ class FFmpegWorker(QThread):
     log_received = Signal(str)            # Raw log line from FFmpeg (普通のログのみ)
     progress_stats_updated = Signal(dict) # key=value 型の進捗行 (fps=, speed=, out_time= など)
     time_updated = Signal(float)          # Processed duration in seconds
-    status_changed = Signal(str)          # Status message
+    status_changed = Signal(str)          # Status message キャンセル処理中などなど
     job_finished = Signal(bool, str)      # (Success, output_file or error message)
 
-    def __init__(
+    def __init__( # これらの初期値を持った クラスを生成することで実行する。
         self,
         command_args: List[str],
         output_file: str,

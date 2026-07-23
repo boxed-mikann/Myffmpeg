@@ -150,7 +150,7 @@ class InputPane(QGroupBox):
         self.table.blockSignals(True)
         
         self.probe_thread = FFprobeThread(new_paths, self.parser)
-        self.probe_thread.file_parsed.connect(self._on_file_parsed)
+        self.probe_thread.file_parsed.connect(self._on_file_parsed) # スレッドで処理されたらこれを行う
         self.probe_thread.all_finished.connect(self._on_probe_finished)
         self.probe_thread.start()
 
