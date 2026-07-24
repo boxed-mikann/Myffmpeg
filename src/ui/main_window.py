@@ -15,6 +15,7 @@ from src.ui.output_pane import OutputPane
 from src.core.bitrate_calc import BitrateCalculator
 from src.core.ffmpeg_worker import FFmpegWorker
 from src.utils.path_helper import get_tool_path, get_icon_path
+from src.core.command_build import build_ffmpeg_commands
 
 
 class MainWindow(QMainWindow):
@@ -101,132 +102,14 @@ class MainWindow(QMainWindow):
 
         settings = self.settings_pane.get_current_settings()
         active_tab = settings["active_tab"]
-
+        
         try:
-            if active_tab == 2:
-                # 2-pass: show Pass1 and Pass2 on separate lines
-                p1, p2, _ = self._build_two_pass_args(file_info, settings, overwrite=True)
-                cmd1_str = subprocess.list2cmdline(p1) if sys.platform == "win32" else " ".join(p1)
-                cmd2_str = subprocess.list2cmdline(p2) if sys.platform == "win32" else " ".join(p2)
-                self.settings_pane.set_command_preview(f"Pass1: {cmd1_str}\n\nPass2: {cmd2_str}")
-            else:
-                cmd, _ = self._build_ffmpeg_command(file_info, settings, overwrite=True)
-                cmd_str = subprocess.list2cmdline(cmd) if sys.platform == "win32" else " ".join(cmd)
-                self.settings_pane.set_command_preview(cmd_str)
+            cmd_list, _ = build_ffmpeg_commands(file_info=file_info,settings=settings,overwrite=False)
+            cmd_str_list = [ (subprocess.list2cmdline(cmd) if sys.platform == "win32" else " ".join(cmd)) for cmd in cmd_list]
+            self.settings_pane.set_command_preview("\n".join(cmd_str_list))
         except Exception as e:
             self.settings_pane.set_command_preview(f"コマンド作成エラー: {e}")
-
-    def _build_ffmpeg_command(
-        self,
-        file_info: Dict[str, Any],
-        settings: Dict[str, Any],
-        overwrite: bool = False
-    ) -> Tuple[List[str], str]:
-        """
-        Builds FFmpeg command list and output file path for Tab A or Tab B.
-        Returns (command_args_list, output_file_path).
-        """
-        in_path = file_info["file_path"]
-        base_dir = os.path.dirname(in_path)
-        base_name, _ = os.path.splitext(os.path.basename(in_path))
-
-        active_tab = settings["active_tab"]
-        ffmpeg_exe = get_tool_path("ffmpeg")
-
-        cmd = [ffmpeg_exe]
-        if overwrite:
-            cmd.append("-y")
-        cmd.extend(["-i", in_path])
-
-        if active_tab == 0:
-            ra = settings["remove_video"]
-            fmt = ra.get("format", "mp3")
-            out_ext = f".{fmt}"
-            out_file = os.path.join(base_dir, f"{base_name}{ra.get('output_suffix', '_novideo')}{out_ext}")
-            cmd.append("-vn")
-            if fmt == "mp3":
-                cmd.extend(["-c:a", "libmp3lame", "-b:a", "192k"])
-            else:
-                cmd.extend(["-c:a", "copy"])
-            if settings["custom_options"]:
-                cmd.extend(settings["custom_options"].split())
-            cmd.append(out_file)
-            return cmd, out_file
-
-        elif active_tab == 1:
-            qb = settings["quality_compress"]
-            out_file = os.path.join(base_dir, f"{base_name}{qb.get('output_suffix', '_compressed')}.mp4")
-            cmd.extend(self.settings_pane._build_video_args(qb))
-            if settings["custom_options"]:
-                cmd.extend(settings["custom_options"].split())
-            cmd.append(out_file)
-            return cmd, out_file
-
-        raise ValueError(f"この関数は Tab A/B のみ対応しています。active_tab={active_tab}")
-
-    def _build_two_pass_args(
-        self,
-        file_info: Dict[str, Any],
-        settings: Dict[str, Any],
-        overwrite: bool = False,
-        passlog_prefix: Optional[str] = None
-    ) -> Tuple[List[str], List[str], str]:
-        """
-        Builds Pass1 and Pass2 argument lists for Tab C (2-pass).
-        Returns (pass1_args, pass2_args, output_file_path).
-        """
-        in_path = file_info["file_path"]
-        dur = file_info.get("duration", 0.0)
-        base_dir = os.path.dirname(in_path)
-        base_name, _ = os.path.splitext(os.path.basename(in_path))
-
-        sc = settings["size_compress"]
-        out_file = os.path.join(base_dir, f"{base_name}{sc.get('output_suffix', '_targetsize')}.mp4")
-
-        calc = BitrateCalculator.calculate_video_bitrate(
-            duration_sec=dur,
-            target_size_mb=sc["target_size_mb"],
-            audio_bitrate_kbps=BitrateCalculator.parse_bitrate_str_to_kbps(sc["audio_bitrate"])
-        )
-        v_bitrate_kbps = calc["video_bitrate_kbps"]
-
-        if passlog_prefix is None:
-            passlog_prefix = os.path.join(tempfile.gettempdir(), f"myffmpeg_passlog_{os.getpid()}")
-
-        ffmpeg_exe = get_tool_path("ffmpeg")
-
-        pass1_args = [ffmpeg_exe]
-        if overwrite:
-            pass1_args.append("-y")
-        pass1_args.extend(["-i", in_path])
-        pass1_args.extend(self.settings_pane._build_video_filter_args(sc))
-        pass1_args.extend([
-            "-c:v", sc["encoder"],
-            "-b:v", f"{v_bitrate_kbps}k",
-            "-pass", "1",
-            "-passlogfile", passlog_prefix,
-            "-an",
-            "-f", "null", "NUL" if os.name == "nt" else "/dev/null"
-        ])
-
-        pass2_args = [ffmpeg_exe]
-        if overwrite:
-            pass2_args.append("-y")
-        pass2_args.extend(["-i", in_path])
-        pass2_args.extend(self.settings_pane._build_video_filter_args(sc))
-        pass2_args.extend([
-            "-c:v", sc["encoder"],
-            "-b:v", f"{v_bitrate_kbps}k",
-            "-pass", "2",
-            "-passlogfile", passlog_prefix
-        ])
-        pass2_args.extend(self.settings_pane._build_audio_args(sc))
-        if settings["custom_options"]:
-            pass2_args.extend(settings["custom_options"].split())
-        pass2_args.append(out_file)
-
-        return pass1_args, pass2_args, out_file
-
+        
     def _start_batch_processing(self, auto_overwrite: Optional[bool] = None):
         selected_files = self.input_pane.get_selected_files()
         if not selected_files:
@@ -243,17 +126,8 @@ class MainWindow(QMainWindow):
         for file_info in selected_files:
             # Build command / check output path
             try:
-                if active_tab == 2:
-                    passlog_prefix = os.path.join(tempfile.gettempdir(), f"myffmpeg_passlog_{os.getpid()}")
-                    pass1_args, pass2_args, out_path = self._build_two_pass_args(
-                        file_info, settings, overwrite=False, passlog_prefix=passlog_prefix
-                    )
-                    cmd = pass2_args  # dummy placeholder (not used for 2-pass jobs)
-                    is_two_pass = True
-                else:
-                    cmd, out_path = self._build_ffmpeg_command(file_info, settings, overwrite=False)
-                    is_two_pass = False
-                    pass1_args, pass2_args, passlog_prefix = None, None, None
+                passlog_prefix = os.path.join(tempfile.gettempdir(), f"myffmpeg_passlog_{os.getpid()}")
+                cmd_list, out_path = build_ffmpeg_commands(file_info=file_info,settings=settings,overwrite=False,passlog_prefix=passlog_prefix)
             except ValueError as e:
                 QMessageBox.warning(self, "エラー", f"ファイル {file_info['file_name']} の設定エラー:\n{e}")
                 return
@@ -284,21 +158,12 @@ class MainWindow(QMainWindow):
 
             # Rebuild with overwrite flag if needed
             if overwrite_flag:
-                if active_tab == 2:
-                    pass1_args, pass2_args, out_path = self._build_two_pass_args(
-                        file_info, settings, overwrite=True, passlog_prefix=passlog_prefix
-                    )
-                    cmd = pass2_args
-                else:
-                    cmd, out_path = self._build_ffmpeg_command(file_info, settings, overwrite=True)
+                cmd_list, out_path = build_ffmpeg_commands(file_info=file_info,settings=settings,overwrite=True,passlog_prefix=passlog_prefix)
 
             self.job_queue.append({
                 "file_info": file_info,
-                "command": cmd,
+                "command_list": cmd_list,
                 "output_file": out_path,
-                "is_two_pass": is_two_pass,
-                "pass1_args": pass1_args,
-                "pass2_args": pass2_args,
                 "passlog_prefix": passlog_prefix
             })
 
@@ -338,12 +203,9 @@ class MainWindow(QMainWindow):
         self.output_pane.append_log(f"\n[{idx_display}/{total_jobs}] 処理開始: {file_info['file_name']}\n")
 
         self.current_worker = FFmpegWorker(
-            command_args=job["command"],
+            command_args_list=job["command_list"],
             output_file=job["output_file"],
             total_duration_sec=file_info.get("duration", 0.0),
-            is_two_pass=job["is_two_pass"],
-            pass1_args=job["pass1_args"],
-            pass2_args=job["pass2_args"],
             passlog_prefix=job["passlog_prefix"],
             parent=self
         )

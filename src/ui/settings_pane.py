@@ -15,6 +15,7 @@ from PySide6.QtMultimediaWidgets import QVideoWidget
 from src.utils.preset_manager import PresetManager, DEFAULT_SETTINGS
 from src.core.bitrate_calc import BitrateCalculator
 from src.core.ffmpeg_worker import FFmpegWorker
+from src.core.command_build import build_ffmpeg_commands
 from src.utils.path_helper import get_tool_path
 
 ENCODER_DISPLAY_NAMES = {
@@ -78,21 +79,6 @@ def detect_available_encoders() -> List[str]:
         #print(res.stderr.decode(errors="ignore"))
     #print(available)
     return available
-
-def build_quality_args(encoder: str, quality_value: int) -> List[str]:
-    """
-    エンコーダー（H.264 / HEVC / AV1共通）に応じた固定画質パラメータを生成する
-    """
-    if "lib" in encoder:
-        return ["-crf", str(quality_value)]
-    elif "nvenc" in encoder:
-        return ["-rc", "vbr", "-cq", str(quality_value)]
-    elif "qsv" in encoder:
-        return ["-global_quality", str(quality_value)]
-    elif "amf" in encoder:
-        q_str = str(quality_value)
-        return ["-rc", "cqp", "-qp_i", q_str, "-qp_p", q_str]
-    return ["-crf", str(quality_value)]
 
 class SettingsPane(QGroupBox):
     settings_changed = Signal()
@@ -258,7 +244,7 @@ class SettingsPane(QGroupBox):
             self.cmb_b_encoder.addItem(ENCODER_DISPLAY_NAMES.get(enc, enc), enc)
         layout.addRow("⚙️エンコーダ(方式):", self.cmb_b_encoder)
         self.cmb_b_encoder.setToolTip("H.264:一般的でどこでも再生できる。\nHEVC:最近のスマホやPCならこっちのほうが容量小さいかも。\nAV1:最新の一番容量が小さいやつ。ただ再生できる環境がまだ少ない。あと時間かかる。\n GPU使うと早くなるけど、圧縮効率は少し落ちるらしい")
-
+        
         # CRF slider and spinbox
         crf_layout = QHBoxLayout()
         # 1. 左右のガイド用ラベルを作成
@@ -299,9 +285,6 @@ class SettingsPane(QGroupBox):
         self.lbl_crf_right.setToolTip(crf_tooltip)
 
         self.cmb_b_preset = QComboBox()
-        self.cmb_b_preset.addItems([
-            "ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"
-        ])
         self.cmb_b_preset.setCurrentText("medium")
         layout.addRow("⏱️処理速度:", self.cmb_b_preset)
         self.cmb_b_preset.setToolTip("速くするほどサイズが小さくなり、遅くするほどサイズが大きくなります。")
@@ -320,6 +303,7 @@ class SettingsPane(QGroupBox):
         layout.addRow("🏷️ファイル名の末尾:", self.txt_b_suffix)
         self.txt_b_suffix.setToolTip("処理後のファイルを区別するために付けます。")
 
+        self.cmb_b_encoder.currentIndexChanged.connect(self._on_encoder_changed)
         # Connect signals
         for widget in [self.cmb_b_res, self.cmb_b_fps, self.cmb_b_encoder, self.spn_b_crf,
                        self.cmb_b_preset, self.chk_b_mono, self.cmb_b_abitrate]:
@@ -330,6 +314,9 @@ class SettingsPane(QGroupBox):
             elif isinstance(widget, QCheckBox):
                 widget.toggled.connect(self._on_settings_changed)
         self.txt_b_suffix.textChanged.connect(self._on_settings_changed)
+
+        # 3. 初期表示のために手動で1回呼び出し
+        self._on_encoder_changed()
 
     # ------------------- Tab C Init -------------------
     def _init_tab_c(self):
@@ -382,6 +369,41 @@ class SettingsPane(QGroupBox):
                 widget.toggled.connect(self._on_settings_changed)
         self.spn_c_target_mb.valueChanged.connect(self._on_settings_changed)
         self.txt_c_suffix.textChanged.connect(self._on_settings_changed)
+
+
+    # ------------------- Encoder Change Update -------------------
+    def _on_encoder_changed(self):
+        enc_key = self.cmb_b_encoder.currentData()
+        config = ENCODER_CONFIGS.get(enc_key)
+        if config is None:
+            # 互換性のためフォールバック（これまでの挙動を維持）
+            enc_key = "libx264"
+            config = ENCODER_CONFIGS[enc_key]
+
+        # 速度プリセットの更新。
+        self.cmb_b_preset.blockSignals(True)
+        self.cmb_b_preset.clear()
+        default_idx = 0
+        for idx, (text, value) in enumerate(config["presets"]):
+            self.cmb_b_preset.addItem(text, value)
+            if value == config["default_preset"]:
+                default_idx = idx
+        self.cmb_b_preset.setCurrentIndex(default_idx)
+        self.cmb_b_preset.blockSignals(False)
+
+        # B. 品質ラベルとSpinBoxの更新
+        #self.lbl_crf_right.setText(config["quality_label"])
+        min_q, max_q = config["quality_range"]
+        print("min_q",min_q)
+        print("max_q",max_q)
+        self.spn_b_crf.blockSignals(True)
+        self.slider_b_crf.blockSignals(True)
+        self.spn_b_crf.setRange(min_q, max_q)
+        self.spn_b_crf.setValue(config["default_quality"])
+        self.slider_b_crf.setRange(min_q, max_q)
+        self.slider_b_crf.setValue(config["default_quality"])
+        self.spn_b_crf.blockSignals(False)
+        self.slider_b_crf.blockSignals(False)
 
     # ------------------- File List Update -------------------
     def update_input_files(self, file_items: List[Dict[str, Any]]):
@@ -490,7 +512,7 @@ class SettingsPane(QGroupBox):
                 "fps": self.cmb_b_fps.currentText(),
                 "encoder": self.cmb_b_encoder.currentData() or "libx264",
                 "crf": self.spn_b_crf.value(),
-                "preset_speed": self.cmb_b_preset.currentText(),
+                "preset_speed": self.cmb_b_preset.currentData(),
                 "audio_mono": self.chk_b_mono.isChecked(),
                 "audio_bitrate": self.cmb_b_abitrate.currentText(),
                 "output_suffix": self.txt_b_suffix.text().strip() or "_compressed"
@@ -589,8 +611,12 @@ class SettingsPane(QGroupBox):
         dur = file_info.get("duration", 10.0)
 
         # Output preview file in temp directory
-        ext = ".mp3" if active_tab == 0 else ".mp4"
-        preview_out = os.path.join(tempfile.gettempdir(), f"myffmpeg_preview_10s{ext}")
+        passlog_prefix = os.path.join(tempfile.gettempdir(), "myffmpeg_preview_passlog")
+        try:
+            cmd_list, preview_out = build_ffmpeg_commands(file_info=file_info, settings=self.get_current_settings(), passlog_prefix=passlog_prefix,overwrite=True, IsPreview=True)
+        except Exception as e:
+            QMessageBox.warning(self, "エラー", f"コマンドの生成に失敗しました:\n{e}")
+            return
 
         # Stop player and clear source BEFORE deleting the file
         self.media_player.stop()
@@ -601,82 +627,7 @@ class SettingsPane(QGroupBox):
                 os.remove(preview_out)
             except OSError:
                 pass
-
-        cmd = ["-y", "-ss", "0", "-t", "10", "-i", in_path]
-        is_two_pass = False
-        pass1_args, pass2_args, passlog_prefix = None, None, None
-
-        settings = self.get_current_settings()
-
-        if active_tab == 0:
-            # Tab A: Video removal
-            fmt = settings["remove_video"]["format"]
-            cmd.extend(["-vn"])
-            if fmt == "mp3":
-                cmd.extend(["-c:a", "libmp3lame", "-b:a", "192k"])
-            else:
-                cmd.extend(["-c:a", "copy"])
-            cmd.append(preview_out)
-
-        elif active_tab == 1:
-            # Tab B: Quality Compression
-            qb = settings["quality_compress"]
-            cmd.extend(self._build_video_args(qb))
-            if settings["custom_options"]:
-                cmd.extend(settings["custom_options"].split())
-            cmd.append(preview_out)
-
-        elif active_tab == 2:
-            # Tab C: Target Size Compression
-            sc = settings["size_compress"]
-            target_mb = sc["target_size_mb"]
-            # Spec: preview target size = target_size * 10 / duration
-            if dur > 0:
-                prev_target_mb = (target_mb * 10.0) / dur
-            else:
-                prev_target_mb = target_mb
-
-            abitrate_kbps = BitrateCalculator.parse_bitrate_str_to_kbps(sc["audio_bitrate"])
-            try:
-                calc = BitrateCalculator.calculate_video_bitrate(
-                    duration_sec=10.0,
-                    target_size_mb=prev_target_mb,
-                    audio_bitrate_kbps=abitrate_kbps
-                )
-                v_bitrate_kbps = calc["video_bitrate_kbps"]
-            except ValueError as e:
-                QMessageBox.warning(self, "エラー", f"プレビュー計算エラー: {e}")
-                return
-
-            is_two_pass = True
-            passlog_prefix = os.path.join(tempfile.gettempdir(), "myffmpeg_preview_passlog")
             
-            encoder_raw = sc["encoder"]
-
-            pass1_args = ["-y", "-ss", "0", "-t", "10", "-i", in_path]
-            pass1_args.extend(self._build_video_filter_args(sc))
-            pass1_args.extend([
-                "-c:v", encoder_raw,
-                "-b:v", f"{v_bitrate_kbps}k",
-                "-pass", "1",
-                "-passlogfile", passlog_prefix,
-                "-an",
-                "-f", "null", "NUL" if os.name == "nt" else "/dev/null"
-            ])
-
-            pass2_args = ["-y", "-ss", "0", "-t", "10", "-i", in_path]
-            pass2_args.extend(self._build_video_filter_args(sc))
-            pass2_args.extend([
-                "-c:v", encoder_raw,
-                "-b:v", f"{v_bitrate_kbps}k",
-                "-pass", "2",
-                "-passlogfile", passlog_prefix
-            ])
-            pass2_args.extend(self._build_audio_args(sc))
-            if settings["custom_options"]:
-                pass2_args.extend(settings["custom_options"].split())
-            pass2_args.append(preview_out)
-
         self._preview_output_path = preview_out
 
         # Start FFmpeg worker for preview
@@ -684,12 +635,9 @@ class SettingsPane(QGroupBox):
         self.btn_generate_preview.setText("🎬 プレビュー作成中...")
 
         self.preview_worker = FFmpegWorker(
-            command_args=cmd,
+            command_args_list=cmd_list,
             output_file=preview_out,
             total_duration_sec=10.0,
-            is_two_pass=is_two_pass,
-            pass1_args=pass1_args,
-            pass2_args=pass2_args,
             passlog_prefix=passlog_prefix,
             parent=self
         )
@@ -710,45 +658,215 @@ class SettingsPane(QGroupBox):
         else:
             QMessageBox.warning(self, "プレビュー生成エラー", f"プレビューの作成に失敗しました:\n{output_or_err}")
 
-    # ------------------- Command Builder Helpers -------------------
-    def _build_video_filter_args(self, settings: Dict[str, Any]) -> List[str]:
-        args = []
-        res = settings.get("resolution", "元のまま")
-        fps = settings.get("fps", "元のまま")
-
-        filters = []
-        if res != "元のまま" and "x" in res:
-            w, h = res.split("x")
-            filters.append(f"scale={w}:{h}")
-        if fps != "元のまま" and fps.isdigit():
-            filters.append(f"fps={fps}")
-
-        if filters:
-            args.extend(["-vf", ",".join(filters)])
-        return args
-
-    def _build_audio_args(self, settings: Dict[str, Any]) -> List[str]:
-        args = ["-c:a", "aac"]
-        if settings.get("audio_mono", False):
-            args.extend(["-ac", "1"])
-        abit = settings.get("audio_bitrate", "128k")
-        args.extend(["-b:a", abit])
-        return args
-
-    def _build_video_args(self, qb: Dict[str, Any]) -> List[str]:
-        args = self._build_video_filter_args(qb)
-        encoder = qb.get("encoder", "libx264")
-        args.extend(["-c:v", encoder])
-
-        crf = qb.get("crf", 23)
-        args.extend(build_quality_args(encoder, crf))
-
-        preset = qb.get("preset_speed", "medium")
-        args.extend(["-preset", preset])
-
-        args.extend(self._build_audio_args(qb))
-        return args
-
     # ------------------- Command Preview Display -------------------
     def set_command_preview(self, text: str):
         self.txt_command_preview.setPlainText(text)
+
+# 12種類の動画エンコーダー完全検証済み設定辞書
+ENCODER_CONFIGS = {
+    # -----------------------------------------------------------------
+    # CPU エンコーダー
+    # -----------------------------------------------------------------
+    "libx264": {
+        "name": "H.264 (CPU / libx264)",
+        "presets": [
+            ("ultrafast (最速)", "ultrafast"),
+            ("superfast (超高速)", "superfast"),
+            ("veryfast (高速)", "veryfast"),
+            ("faster", "faster"),
+            ("fast", "fast"),
+            ("medium (標準・デフォルト)", "medium"),
+            ("slow (高画質)", "slow"),
+            ("slower (超高画質)", "slower"),
+            ("veryslow (最高画質)", "veryslow"),
+            ("placebo (実験用・非推奨)", "placebo"),
+        ],
+        "default_preset": "medium",
+        "quality_label": "CRF (小＝高画質):",
+        "quality_range": (0, 51),
+        "default_quality": 23,
+    },
+    "libx265": {
+        "name": "H.265/HEVC (CPU / libx265)",
+        "presets": [
+            ("ultrafast (最速)", "ultrafast"),
+            ("superfast (超高速)", "superfast"),
+            ("veryfast (高速)", "veryfast"),
+            ("faster", "faster"),
+            ("fast", "fast"),
+            ("medium (標準・デフォルト)", "medium"),
+            ("slow (高画質)", "slow"),
+            ("slower (超高画質)", "slower"),
+            ("veryslow (最高画質)", "veryslow"),
+            ("placebo (実験用・非推奨)", "placebo"),
+        ],
+        "default_preset": "medium",
+        "quality_label": "CRF (小＝高画質):",
+        "quality_range": (0, 51),
+        "default_quality": 28,
+    },
+    "libsvtav1": {
+        "name": "AV1 (CPU / SVT-AV1)",
+        "presets": [
+            ("0 (最高画質・超低速)", "0"),
+            ("1 (極高画質)", "1"),
+            ("2 (極高画質)", "2"),
+            ("3 (高画質・保存向け)", "3"),
+            ("4 (高画質・保存向け)", "4"),
+            ("5 (バランス高画質)", "5"),
+            ("6 (バランス高画質)", "6"),
+            ("7 (標準・高速)", "7"),
+            ("8 (標準・おすすめ)", "8"),
+            ("9 (高速・ストリーミング)", "9"),
+            ("10 (高速)", "10"),
+            ("11 (超高速)", "11"),
+            ("12 (爆速)", "12"),
+            ("13 (最速・デバッグ用)", "13"),
+        ],
+        "default_preset": "8",
+        "quality_label": "CRF (0-63):",
+        "quality_range": (0, 63),
+        "default_quality": 33,
+    },
+    # -----------------------------------------------------------------
+    # NVIDIA (NVENC)
+    # -----------------------------------------------------------------
+    "h264_nvenc": {
+        "name": "H.264 (NVIDIA / NVENC)",
+        "presets": [
+            ("p1 (最速・最低画質)", "p1"),
+            ("p2 (より高速)", "p2"),
+            ("p3 (高速)", "p3"),
+            ("p4 (標準・デフォルト)", "p4"),
+            ("p5 (高画質)", "p5"),
+            ("p6 (より高画質)", "p6"),
+            ("p7 (最高画質・低速)", "p7"),
+        ],
+        "default_preset": "p4",
+        "quality_label": "CQ (小＝高画質):",
+        "quality_range": (0, 51),
+        "default_quality": 23,
+    },
+    "hevc_nvenc": {
+        "name": "H.265/HEVC (NVIDIA / NVENC)",
+        "presets": [
+            ("p1 (最速・最低画質)", "p1"),
+            ("p2 (より高速)", "p2"),
+            ("p3 (高速)", "p3"),
+            ("p4 (標準・デフォルト)", "p4"),
+            ("p5 (高画質)", "p5"),
+            ("p6 (より高画質)", "p6"),
+            ("p7 (最高画質・低速)", "p7"),
+        ],
+        "default_preset": "p4",
+        "quality_label": "CQ (小＝高画質):",
+        "quality_range": (0, 51),
+        "default_quality": 26,
+    },
+    "av1_nvenc": {
+        "name": "AV1 (NVIDIA / NVENC)",
+        "presets": [
+            ("p1 (最速・最低画質)", "p1"),
+            ("p2 (より高速)", "p2"),
+            ("p3 (高速)", "p3"),
+            ("p4 (標準・デフォルト)", "p4"),
+            ("p5 (高画質)", "p5"),
+            ("p6 (より高画質)", "p6"),
+            ("p7 (最高画質・低速)", "p7"),
+        ],
+        "default_preset": "p4",
+        "quality_label": "CQ (小＝高画質):",
+        "quality_range": (0, 51),
+        "default_quality": 30,
+    },
+    # -----------------------------------------------------------------
+    # Intel (QSV)
+    # -----------------------------------------------------------------
+    "h264_qsv": {
+        "name": "H.264 (Intel / QSV)",
+        "presets": [
+            ("veryfast (最速)", "veryfast"),
+            ("faster (より高速)", "faster"),
+            ("fast (高速)", "fast"),
+            ("medium (標準)", "medium"),
+            ("slow (高画質)", "slow"),
+            ("slower (より高画質)", "slower"),
+            ("veryslow (最高画質)", "veryslow"),
+        ],
+        "default_preset": "medium",
+        "quality_label": "Global Quality (1-51):",
+        "quality_range": (1, 51),  # QSVは1〜51
+        "default_quality": 23,
+    },
+    "hevc_qsv": {
+        "name": "H.265/HEVC (Intel / QSV)",
+        "presets": [
+            ("veryfast (最速)", "veryfast"),
+            ("faster (より高速)", "faster"),
+            ("fast (高速)", "fast"),
+            ("medium (標準)", "medium"),
+            ("slow (高画質)", "slow"),
+            ("slower (より高画質)", "slower"),
+            ("veryslow (最高画質)", "veryslow"),
+        ],
+        "default_preset": "medium",
+        "quality_label": "Global Quality (1-51):",
+        "quality_range": (1, 51),
+        "default_quality": 26,
+    },
+    "av1_qsv": {
+        "name": "AV1 (Intel / QSV)",
+        "presets": [
+            ("veryfast (最速)", "veryfast"),
+            ("faster (より高速)", "faster"),
+            ("fast (高速)", "fast"),
+            ("medium (標準)", "medium"),
+            ("slow (高画質)", "slow"),
+            ("slower (より高画質)", "slower"),
+            ("veryslow (最高画質)", "veryslow"),
+        ],
+        "default_preset": "medium",
+        "quality_label": "Global Quality (1-51):",
+        "quality_range": (1, 51),
+        "default_quality": 30,
+    },
+    # -----------------------------------------------------------------
+    # AMD (AMF)
+    # -----------------------------------------------------------------
+    "h264_amf": {
+        "name": "H.264 (AMD / AMF)",
+        "presets": [
+            ("speed (最速)", "speed"),
+            ("balanced (標準)", "balanced"),
+            ("quality (高画質)", "quality"),
+        ],
+        "default_preset": "balanced",
+        "quality_label": "QP (0-51):",
+        "quality_range": (0, 51),
+        "default_quality": 23,
+    },
+    "hevc_amf": {
+        "name": "H.265/HEVC (AMD / AMF)",
+        "presets": [
+            ("speed (最速)", "speed"),
+            ("balanced (標準)", "balanced"),
+            ("quality (高画質)", "quality"),
+        ],
+        "default_preset": "balanced",
+        "quality_label": "QP (0-51):",
+        "quality_range": (0, 51),
+        "default_quality": 26,
+    },
+    "av1_amf": {
+        "name": "AV1 (AMD / AMF)",
+        "presets": [
+            ("speed (最速)", "speed"),
+            ("balanced (標準)", "balanced"),
+            ("quality (高画質)", "quality"),
+        ],
+        "default_preset": "balanced",
+        "quality_label": "QP (0-255):",
+        "quality_range": (0, 255),  # AMF AV1のみ 0〜255
+        "default_quality": 90,
+    },
+}

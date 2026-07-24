@@ -41,6 +41,8 @@ class FFprobeThread(QThread):
                     "fps": 0.0,
                     "video_codec": "不明",
                     "audio_codec": "不明",
+                    "video_bit_rate":0,
+                    "audio_bit_rate":0,
                     "error": str(e)
                 })
         self.all_finished.emit()
@@ -80,16 +82,16 @@ class InputPane(QGroupBox):
 
         # File List Table
         self.table = QTableWidget()
-        self.table.setColumnCount(8)
+        self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
-            "対象", "ファイル名", "解像度", "長さ", "サイズ", "映像", "音声", "パス"
+            "対象", "ファイル名", "解像度", "長さ", "サイズ", "映像","映像ビットレート", "音声","音声ビットレート", "パス"
         ])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive) #列幅の自由な変更を可能にする
         # Set default reasonable widths for commonly truncated columns
         self.table.setColumnWidth(1, 150) # ファイル名
-        self.table.setColumnWidth(7, 200) # パス
+        self.table.setColumnWidth(9, 200) # パス
         layout.addWidget(self.table)
 
         # Signals
@@ -178,8 +180,12 @@ class InputPane(QGroupBox):
         self.table.setItem(row, 4, QTableWidgetItem(f"{size_mb:.2f} MB"))
 
         self.table.setItem(row, 5, QTableWidgetItem(info.get("video_codec", "-")))
-        self.table.setItem(row, 6, QTableWidgetItem(info.get("audio_codec", "-")))
-        self.table.setItem(row, 7, QTableWidgetItem(info["file_path"]))
+        video_bit_rate_kbps = info["video_bit_rate"] / 1024
+        self.table.setItem(row, 6, QTableWidgetItem(f"{video_bit_rate_kbps:.2f} kbps"))
+        self.table.setItem(row, 7, QTableWidgetItem(info.get("audio_codec", "-")))
+        audio_bit_rate_kbps = info["audio_bit_rate"] / 1024
+        self.table.setItem(row, 8, QTableWidgetItem(f"{audio_bit_rate_kbps:.2f} kbps"))
+        self.table.setItem(row, 9, QTableWidgetItem(info["file_path"]))
 
     def _on_probe_finished(self):
         self.table.blockSignals(False)

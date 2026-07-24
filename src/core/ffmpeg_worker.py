@@ -24,23 +24,17 @@ class FFmpegWorker(QThread):
 
     def __init__( # これらの初期値を持った クラスを生成することで実行する。
         self,
-        command_args: List[str],
-        output_file: str,
+        command_args_list: List[List[str]],# いずれこちらに統合。main側の対応も必要
+        output_file: str,# エラー出た時に掃除する時とかに使う
         total_duration_sec: float = 0.0,
-        is_two_pass: bool = False,
-        pass1_args: Optional[List[str]] = None,
-        pass2_args: Optional[List[str]] = None,
-        passlog_prefix: Optional[str] = None,
+        passlog_prefix: Optional[str] = None,#ここ何らかの値にしたほうがいいのでは？
         parent=None
     ):
         super().__init__(parent)
         self.ffmpeg_exe = get_tool_path("ffmpeg")
-        self.command_args = command_args
+        self.command_args_list = command_args_list
         self.output_file = os.path.abspath(output_file)
         self.total_duration_sec = total_duration_sec
-        self.is_two_pass = is_two_pass
-        self.pass1_args = pass1_args
-        self.pass2_args = pass2_args
         self.passlog_prefix = passlog_prefix
 
         self._process: Optional[subprocess.Popen] = None
@@ -83,11 +77,7 @@ class FFmpegWorker(QThread):
         self._is_cancelled = False
         self.progress_updated.emit(0)
 
-        if self.is_two_pass and self.pass1_args and self.pass2_args:
-            success, err_msg = self._run_two_pass()
-        else:
-            success, err_msg = self._run_single_pass(self.command_args, progress_scale=(0.0, 1.0))
-
+        success, err_msg = self._run_commands(self.command_args_list, progress_scale=(0.0,1.0))
         # Cleanup pass logs if any
         self._cleanup_pass_logs()
 
@@ -199,15 +189,24 @@ class FFmpegWorker(QThread):
             return False, f"FFmpegが終了コード {return_code} でエラー終了しました。"
         return True, ""
 
-    def _run_two_pass(self) -> Tuple[bool, str]:
-        self.status_changed.emit("2パスエンコード: パス1実行中...")
-        ok1, err1 = self._run_single_pass(self.pass1_args, progress_scale=(0.0, 0.5))
-        if not ok1 or self._is_cancelled:
-            return False, f"Pass 1 エラー: {err1}"
+    def _run_commands(self, commands: List[List[str]], progress_scale: Tuple[float, float] = (0.0, 1.0)) -> Tuple[bool, str]:
+        total_parts = len(commands)
+        start_p, end_p = progress_scale
+        for i, cmd_args in enumerate(commands):
+            part_idx = i + 1
+            part_min = start_p + (i / total_parts) * (end_p - start_p)
+            part_max = start_p + ((i + 1) / total_parts) * (end_p - start_p)
 
-        self.status_changed.emit("2パスエンコード: パス2実行中...")
-        ok2, err2 = self._run_single_pass(self.pass2_args, progress_scale=(0.5, 1.0))
-        if not ok2 or self._is_cancelled:
-            return False, f"Pass 2 エラー: {err2}"
+            is_last = (part_idx == total_parts)
+            if not is_last:
+                self.status_changed.emit(f"処理 {part_idx}/{total_parts} を実行中...")
+            else:
+                self.status_changed.emit(f"最終処理中...")
+
+            ok, err = self._run_single_pass(cmd_args, progress_scale=(part_min, part_max))
+            if not ok or self._is_cancelled:
+                return False, f"コマンド {part_idx} エラー: {err}"
 
         return True, ""
+
+        

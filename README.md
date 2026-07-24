@@ -6,13 +6,20 @@
 
 ffmpegでの圧縮をフォルダごと一気にやりたい、コマンド打つのめんどくさい、プレビュー見ながら圧縮したいという方向け。
 
-重要！ 不具合発覚 av1方式および、ハードウェアエンコーダ(GPU)でのサイズ指定方式は使えません。やりたい人は各自でコマンド調べましょう。現在、この問題の修正対応中...
+### てかFFmpegって何？
+
+FFmpegは動画・音声処理のソフトで、様々なフォーマットの変換、録画・録音、ストリーミング配信などができる。
+コマンドラインで動く。変換サイト・アプリを探すより、これ使うのが最適な気がする。
+
+FFmpegの使い方
+1. FFmpegをダウンロート
+2. チャッピーにコマンドを聞く
 
 ---
 
 ## ✨ 主な機能
 
-- **ビットレート自動計算（2パス圧縮）**: 目標ファイルサイズ（MB）を指定するだけで最適なビットレートを自動算出。
+- **ビットレート自動計算**: 目標ファイルサイズ（MB）を指定するだけで最適なビットレートを自動算出。
 - **1パス画質優先圧縮**: CRFやエンコーダ設定（CPU / Intel QSV対応）を指定した圧縮。
 - **映像消去（音声抽出）**: 動画から映像ストリームを素早く削除。
 - **バッチ（一括）処理**: 複数ファイルをリストに追加してまとめてエンコード。
@@ -25,6 +32,7 @@ Windows 11
 IntelのGPU
 NvidiaのGPU(動作未確認)
 AMDのGPU(動作未確認)
+環境をお持ちの方は動作確認してご報告いただけると幸いです。
 
 ---
 
@@ -62,7 +70,7 @@ Pythonのインストールや環境構築は不要です。
     `.\.venv\Scripts\activate`でエラーが出たら、`Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process`もしくは`Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`を実行してから再度実行してください。
 
 3. FFmpegの配置
-gyan.dev 等からダウンロードした ffmpeg.exe と ffprobe.exe を ./tools/ フォルダ内に配置してください。~~release-essentialsが軽量でおすすめです。~~ → av1コーデックがなかったので、fullの方で、.7zはwindowsの標準の展開のやつで展開できます。
+gyan.dev 等からダウンロードした ffmpeg.exe と ffprobe.exe を ./tools/ フォルダ内に配置してください。~~release-essentialsが軽量でおすすめです。~~ → av1コーデックがなかったので、fullの方でお願いします。.7zはwindowsの標準の展開のやつで展開できます。
 
     ```plaintext
     Myffmpeg/
@@ -81,7 +89,7 @@ gyan.dev 等からダウンロードした ffmpeg.exe と ffprobe.exe を ./tool
 ## 今後の展望
 
 - プレビュー画面を最大化できるようにしたい。
-- ~~NvidiaGPUの環境とかにも対応したい。~~
+- ~~NvidiaGPUの環境とかにも対応したい。~~　→完了。未検証。検証求ム。
 AIのクレジット回復待ち中
 
 ---

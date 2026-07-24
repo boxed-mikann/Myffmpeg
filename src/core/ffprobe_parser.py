@@ -53,6 +53,7 @@ class FFprobeParser:
             codec_type = stream.get("codec_type")
             if codec_type == "video" and not video_codec:
                 video_codec = stream.get("codec_name", "")
+                video_bit_rate = int(stream.get("bit_rate", 0))
                 width = int(stream.get("width", 0))
                 height = int(stream.get("height", 0))
 
@@ -69,6 +70,7 @@ class FFprobeParser:
                         pass
             elif codec_type == "audio" and not audio_codec:
                 audio_codec = stream.get("codec_name", "")
+                audio_bit_rate = int(stream.get("bit_rate", 0))
 
         resolution_str = f"{width}x{height}" if (width > 0 and height > 0) else "N/A"
 
@@ -83,5 +85,7 @@ class FFprobeParser:
             "fps": fps,
             "video_codec": video_codec,
             "audio_codec": audio_codec,
+            "video_bit_rate": video_bit_rate,
+            "audio_bit_rate": audio_bit_rate,
             "raw_json": data
         }
